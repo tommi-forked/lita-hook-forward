@@ -11,26 +11,25 @@ module Lita
       end
 
       def receive(request, response)
-        message = request.params['message']
-        targets = request.params['targets'] || Lita.config.handlers.hook_forward.default_room || nil
-        target_names = []
+        incoming_payload = HookForwardHelpers::IncomingPayload.new(request.params)
 
-        targets.split(',').each do |param_target|
-          target_names << param_target
+        incoming_payload.targets.each do |target|
+          if robot.config.robot.adapter == :slack && incoming_payload.attachment
+            send_slack_attachment(target, incoming_payload)
+          else
+            send_message(target, incoming_payload)
+          end
         end
+      end
 
-        target_names.each do |name|
-          target = if name[0] == '#'
-                     name = name[1..-1]
-                     lita_room = Lita::Room.find_by_name(name)
-                     Lita::Source.new(room: lita_room.id)
-                   else
-                     user = Lita::User.fuzzy_find(name)
-                     Lita::Source.new(user: user)
-                   end
+      def send_message(target, incoming_payload)
+        target = HookForwardHelpers::LitaTarget.call(target)[:lita_source]
+        robot.send_message(target, incoming_payload.message)
+      end
 
-          robot.send_message(target, message)
-        end
+      def send_slack_attachment(target, incoming_payload)
+        target = HookForwardHelpers::LitaTarget.call(target)[:lita_room_or_user]
+        robot.chat_service.send_attachment(target, incoming_payload.attachment)
       end
     end
 
